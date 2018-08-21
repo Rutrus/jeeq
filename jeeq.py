@@ -58,13 +58,13 @@ class Point( object ):
 		if other == INFINITY: return self
 		if self == INFINITY: return other
 		assert self.__curve == other.__curve
+		p = self.__curve.p()
 		if self.__x == other.__x:
-			if ( self.__y + other.__y ) % self.__curve.p() == 0:
+			if ( self.__y + other.__y ) % p == 0:
 				return INFINITY
 			else:
 				return self.double()
 
-		p = self.__curve.p()
 		l = ( ( other.__y - self.__y ) * \
 			inverse_mod( other.__x - self.__x, p ) ) % p
 		x3 = ( l * l - self.__x - other.__x ) % p
@@ -130,8 +130,8 @@ class Point( object ):
 	
 	def ser( self, comp = True ):
 		if comp:
-			return ( ('%02x'%(2+(self.__y&1)))+('%064x'%self.__x) ).decode('hex')
-		return ( '04'+('%064x'%self.__x)+('%064x'%self.__y) ).decode('hex')
+			return ( ('%02x' % (2 + (self.__y & 1))) + ('%064x' % self.__x) ).decode('hex')
+		return ( '04' + ('%064x' % self.__x) + ('%064x' % self.__y) ).decode('hex')
 		
 INFINITY = Point( None, None, None )
 curveBitcoin = CurveFp(_p, _a, _b)
@@ -215,7 +215,8 @@ def b58decode(v, length = None):
 	return result
 
 def Hash(data):
-	return hashlib.sha256(hashlib.sha256(data).digest()).digest()
+	# Double hash
+	return sha256(sha256(data))
 
 def EncodeBase58Check(vchIn):
 	hash = Hash(vchIn)
@@ -243,7 +244,7 @@ def ECC_YfromX(x,curved=curveBitcoin, odd=True):
 	_a = curved.a()
 	_b = curved.b()
 	for offset in range(128):
-		Mx=x+offset
+		Mx = x + offset
 		My2 = pow(Mx, 3, _p) + _a * pow(Mx, 2, _p) + _b % _p
 		My = pow(My2, (_p+1)//4, _p )
 
@@ -254,11 +255,11 @@ def ECC_YfromX(x,curved=curveBitcoin, odd=True):
 	raise Exception('ECC_YfromX: No Y found')
 
 def private_header(msg, v):
-	assert v<1, "Can't write version %d private header"%v
-	r=''
-	if v==0:
-		r+=('%08x'%len(msg)).decode('hex')
-		r+=sha256(msg)[:2]
+	assert v < 1, "Can't write version %d private header"%v
+	r = ''
+	if v == 0:
+		r += ('%08x'%len(msg)).decode('hex')
+		r += sha256(msg)[:2]
 	return ('%02x'%v).decode('hex') + ('%04x'%len(r)).decode('hex') + r
 
 def public_header(pubkey, v):
@@ -283,15 +284,15 @@ def encrypt_message(pubkey, m, curved = curveBitcoin, generator = generatorBitco
 		pk = Point( curved, str_to_long(pubkey[1:33]), str_to_long(pubkey[33:65]), _r )
 
 	for i in range(len(msgs)):
-		rand=( ( '%013x' % long(random.random() * 0xfffffffffffff) ) * 5 )
+		rand = ( ( '%013x' % (random.random() * 0xfffffffffffff) ) * 5 )
 
-		n = long(rand,16) >> 4
+		n = int(rand) >> 4
 		Mx = str_to_long(msgs[i])
-		My,xoffset=ECC_YfromX(Mx, curved)
+		My,xoffset = ECC_YfromX(Mx, curved)
 		M = Point( curved, Mx+xoffset, My, _r )
 
-		T = P*n
-		U = pk*n + M
+		T = P * n
+		U = pk * n + M
 
 		toadd = T.ser() + U.ser()
 		toadd = chr(ord(toadd[0])-2+2*xoffset)+toadd[1:]
@@ -309,7 +310,7 @@ def pointSerToPoint(Aser, curved = curveBitcoin, generator = generatorBitcoin):
 def decrypt_message(pvk, enc, curved = curveBitcoin, verbose = False, generator = generatorBitcoin):
 	P = generator
 	pvk=str_to_long(pvk)
-	pubkeys = [(P*pvk).ser(True), (P*pvk).ser(False)]
+	pubkeys = [(P * pvk).ser(True), (P * pvk).ser(False)]
 	enc = base64.b64decode(enc)
 
 	assert enc[:2] == '\x6a\x6a'		
@@ -329,15 +330,15 @@ def decrypt_message(pvk, enc, curved = curveBitcoin, verbose = False, generator 
 	enc = enc[5+hs:]
 
 	r = ''
-	for Tser,User in map(lambda x:[x[:33],x[33:]], chunks(enc,66)):
+	for Tser,User in map(lambda x:[x[:33],x[33:]], chunks(enc, 66)):
 		ots = ord(Tser[0])
-		xoffset = ots>>1
-		Tser = chr(2+(ots&1))+Tser[1:]
-		T = pointSerToPoint(Tser,curved,generator)
-		U = pointSerToPoint(User,curved,generator)
+		xoffset = ots >> 1
+		Tser = chr(2 + (ots & 1)) + Tser[1:]
+		T = pointSerToPoint(Tser, curved, generator)
+		U = pointSerToPoint(User, curved, generator)
 
-		V = T*pvk
-		Mcalc = U+(V.negative_self())
+		V = T * pvk
+		Mcalc = U + V.negative_self()
 		r += ('%064x'%(Mcalc.x()-xoffset)).decode('hex')
 
 	pvhv = str_to_long(r[0])
@@ -366,10 +367,10 @@ def KeyboardInterruptText():
 	return "Hit Ctrl-D"
 
 def GetArg(a, d = ''):
-	for i in range(1,len(sys.argv)):
+	for i in range(1, len(sys.argv)):
 		if sys.argv[i-1] == a:
 			if a in ['-i']:
-				f=open(sys.argv[i],'r')
+				f = open(sys.argv[i],'r')
 				content=f.read()
 				f.close()
 				return content
@@ -399,14 +400,15 @@ def print_help(e = False):
 	if e: exit(0)
 
 def generate_keys(curved = curveBitcoin, bitcoin = True, addv = 0, G = generatorBitcoin):  #will return private key < 2^256
+	# WARNING!! RANDOM GENERATOR IS NOT SECURE!!
 	_r  = G.order()
-	rand = ( '%013x' % long(random.random() * 0xfffffffffffff) )*5
-	pvk  = (long(rand,16) >> 4)%_r
+	rand = ( '%013x' % (random.random() * 0xfffffffffffff) ) * 5
+	pvk  = (int(rand) >> 4) % _r
 	P = pvk*G
 	btcaddresses=['','']
 	if bitcoin:
-		btcaddresses[0]=public_key_to_bc_address(P.ser(True), addv)
-		btcaddresses[1]=public_key_to_bc_address(P.ser(False),addv)
+		btcaddresses[0] = public_key_to_bc_address(P.ser(True), addv)
+		btcaddresses[1] = public_key_to_bc_address(P.ser(False),addv)
 	return ['%064x'%pvk, P.ser(True).encode('hex'), P.ser(False).encode('hex'), btcaddresses]
 
 if __name__ == '__main__':
@@ -415,7 +417,6 @@ if __name__ == '__main__':
 	encrypted = encrypt_message(pubkey, "hello world!", generatorBitcoin)
 	output    = decrypt_message(pvk, base64d_msg, verbose=True, generatorBitcoin)
 	"""
-
 	if GetFlag('--help') or GetFlag('-h'):
 		print_help(True)
 
@@ -430,38 +431,38 @@ if __name__ == '__main__':
 		exit(0)
 
 	if GetFlag('-e'):
-		addv=int(GetArg('-v',0))
-		message=GetArg('-i')
-		public_key=GetArg('-k')
+		addv = int(GetArg('-v',0))
+		message = GetArg('-i')
+		public_key = GetArg('-k')
 
 		if len(public_key) in [66,130]:
-			public_key=public_key.decode('hex')
+			public_key = public_key.decode('hex')
 		assert len(public_key) in [33,65], 'Bad public key'
 
-		output=encrypt_message(public_key,message, generator=generatorBitcoin)
+		output = encrypt_message(public_key,message, generator = generatorBitcoin)
 
-		output_file=GetArg('-o')
+		output_file = GetArg('-o')
 		if output_file:
-			f=open(output_file,'w')
+			f = open(output_file,'w')
 			f.write(output)
 			f.close()
-		print ("\n\nEncrypted message to "+public_key_to_bc_address(public_key,addv)+":\n"+output)
+		print ("\n\nEncrypted message to " + public_key_to_bc_address(public_key,addv) + ":\n" + output)
 	elif GetFlag('-d'):
-		addv=int(GetArg('-v',0))
-		message=GetArg('-i')
-		private_key=GetArg('-k')
+		addv = int(GetArg('-v', 0))
+		message = GetArg('-i')
+		private_key = GetArg('-k')
 
-		if len(private_key)==64:
-			private_key=private_key.decode('hex')
-		assert len(private_key)==32, 'Bad private key, you must give it in hexadecimal'
+		if len(private_key) == 64:
+			private_key = private_key.decode('hex')
+		assert len(private_key) == 32, 'Bad private key, you must give it in hexadecimal'
 
-		output=decrypt_message(private_key, message, verbose=True, generator=generatorBitcoin)
+		output = decrypt_message(private_key, message, verbose = True, generator = generatorBitcoin)
 
-		output_file=GetArg('-o')
+		output_file = GetArg('-o')
 		if output_file:
-			f=open(output_file,'w')
+			f = open(output_file,'w')
 			f.write(output[0])
 			f.close()
-		print ("\nDecrypted message to "+public_key_to_bc_address(output[2],addv)+":\n"+output[0])
+		print ("\nDecrypted message to " + public_key_to_bc_address(output[2], addv) + ":\n" + output[0])
 	else:
 		print_help(True)
