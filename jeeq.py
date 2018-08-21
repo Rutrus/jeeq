@@ -66,7 +66,7 @@ class Point( object ):
 
 		p = self.__curve.p()
 		l = ( ( other.__y - self.__y ) * \
-					inverse_mod( other.__x - self.__x, p ) ) % p
+			inverse_mod( other.__x - self.__x, p ) ) % p
 		x3 = ( l * l - self.__x - other.__x ) % p
 		y3 = ( l * ( self.__x - x3 ) - self.__y ) % p
 		return Point( self.__curve, x3, y3 )
@@ -76,7 +76,7 @@ class Point( object ):
 			assert x > 0
 			result = 1
 			while result <= x: result = 2 * result
-			return result / 2
+			return result // 2
 
 		e = other
 		if self.__order: e = e % self.__order
@@ -85,13 +85,13 @@ class Point( object ):
 		assert e > 0
 		e3 = 3 * e
 		negative_self = Point( self.__curve, self.__x, -self.__y, self.__order )
-		i = leftmost_bit( e3 ) / 2
+		i = leftmost_bit( e3 ) // 2
 		result = self
 		while i > 1:
 			result = result.double()
 			if ( e3 & i ) != 0 and ( e & i ) == 0: result = result + self
 			if ( e3 & i ) == 0 and ( e & i ) != 0: result = result + negative_self
-			i = i / 2
+			i = i // 2
 		return result
 
 	def negative_self(self):
@@ -102,7 +102,7 @@ class Point( object ):
 
 	def __str__( self ):
 		if self == INFINITY: return "infinity"
-		return "(%d,%d)" % ( self.__x, self.__y )
+		return "({},{})".format( self.__x, self.__y )
 
 	def double( self ):
 		if self == INFINITY:
@@ -128,7 +128,7 @@ class Point( object ):
 	def order( self ):
 		return self.__order
 	
-	def ser( self, comp=True ):
+	def ser( self, comp = True ):
 		if comp:
 			return ( ('%02x'%(2+(self.__y&1)))+('%064x'%self.__x) ).decode('hex')
 		return ( '04'+('%064x'%self.__x)+('%064x'%self.__y) ).decode('hex')
@@ -245,7 +245,7 @@ def ECC_YfromX(x,curved=curveBitcoin, odd=True):
 	for offset in range(128):
 		Mx=x+offset
 		My2 = pow(Mx, 3, _p) + _a * pow(Mx, 2, _p) + _b % _p
-		My = pow(My2, (_p+1)/4, _p )
+		My = pow(My2, (_p+1)//4, _p )
 
 		if curved.contains_point(Mx,My):
 			if odd == bool(My&1):
