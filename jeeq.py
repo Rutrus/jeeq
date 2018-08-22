@@ -23,9 +23,18 @@ def str_to_long(b):
 	res = 0
 	pos = 1
 	for a in reversed(b):
-		res += ord(a) * pos
+		res += int(a) * pos
 		pos *= 256
 	return res
+
+def decode_hex(n):
+	n = str(n)
+	if len(n) % 2: n += '0'
+	return bytearray.fromhex(n)
+
+def encode_hex(n):
+	n = bytearray(n)
+	return n.hex()
 
 class CurveFp( object ):
 	def __init__( self, p, a, b ):
@@ -127,11 +136,11 @@ class Point( object ):
 	
 	def order( self ):
 		return self.__order
-	
+
 	def ser( self, comp = True ):
 		if comp:
-			return ( ('%02x' % (2 + (self.__y & 1))) + ('%064x' % self.__x) ).decode('hex')
-		return ( '04' + ('%064x' % self.__x) + ('%064x' % self.__y) ).decode('hex')
+			return decode_hex( ('%02x' % (2 + (self.__y & 1))) + ('%064x' % self.__x))
+		return decode_hex( '04' + ('%064x' % self.__x) + ('%064x' % self.__y) )
 		
 INFINITY = Point( None, None, None )
 curveBitcoin = CurveFp(_p, _a, _b)
@@ -158,10 +167,10 @@ def public_key_to_bc_address(public_key, addrtype = 0):
 	return hash_160_to_bc_address(h160, addrtype)
 
 def hash_160_to_bc_address(h160, addrtype = 0):
-	vh160 = chr(addrtype) + h160
+	vh160 = decode_hex(addrtype) + h160
 	h = Hash(vh160)
 	addr = vh160 + h[0:4]
-	return b58encode(addr)
+	return b58encode(encode_hex(addr))
 
 __b58chars = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 __b58base = len(__b58chars)
@@ -234,12 +243,13 @@ def DecodeBase58Check(psz):
 		return key
 
 def sha256(a):
+	if type(a) == str: a = bytes(a, 'utf8')
 	return hashlib.sha256(a).digest()
 
 def chunks(l, n):
     return [l[i:i+n] for i in range(0, len(l), n)]
 
-def ECC_YfromX(x,curved=curveBitcoin, odd=True):
+def ECC_YfromX(x, curved = curveBitcoin, odd=True):
 	_p = curved.p()
 	_a = curved.a()
 	_b = curved.b()
@@ -255,38 +265,38 @@ def ECC_YfromX(x,curved=curveBitcoin, odd=True):
 	raise Exception('ECC_YfromX: No Y found')
 
 def private_header(msg, v):
-	assert v < 1, "Can't write version %d private header"%v
-	r = ''
+	assert v < 1, "Can't write version %d private header" % v
+	r = b''
 	if v == 0:
-		r += ('%08x'%len(msg)).decode('hex')
+		r += decode_hex('%08x' % len(msg))
 		r += sha256(msg)[:2]
-	return ('%02x'%v).decode('hex') + ('%04x'%len(r)).decode('hex') + r
+	return decode_hex('%02x' % v) + decode_hex('%04x' % len(r)) + r
 
 def public_header(pubkey, v):
-	assert v<1, "Can't write version %d public header"%v
-	r=''
-	if v==0:
-		r=sha256(pubkey)[:2]
-	return '\x6a\x6a' + ('%02x'%v).decode('hex') + ('%04x'%len(r)).decode('hex') + r
+	assert v < 1, "Can't write version %d public header" % v
+	r = b''
+	if v == 0:
+		r = sha256(pubkey)[:2]
+	return b'\x6a\x6a' + decode_hex('%02x' % v) + decode_hex('%04x' % len(r)) + r
 
 def encrypt_message(pubkey, m, curved = curveBitcoin, generator = generatorBitcoin):
-	r = ''
-	msg = private_header(m, 0) + m
-	msg = msg+('\x00' * ( 32-(len(msg)%32) ))
+	r = b''
+	msg = private_header(m, 0) + bytes(m,'utf8')
+	msg = msg + bytes( 32-(len(msg) % 32) )
 	msgs = chunks(msg, 32)
-
 	_r = generator.order()
 
 	P = generator
 	if len(pubkey) == 33: #compressed
-		pk = Point( curved, str_to_long(pubkey[1:33]), ECC_YfromX(str_to_long(pubkey[1:33]), curved, pubkey[0] == '\x03')[0], _r )
+		print(pubkey[1:33])
+		pk = Point( curved, str_to_long(pubkey[1:33]), ECC_YfromX(str_to_long(pubkey[1:33]), curved, pubkey[0] == b'\x03')[0], _r )
 	else:
+		assert len(pubkey) == 65, "Wrong public Key"
 		pk = Point( curved, str_to_long(pubkey[1:33]), str_to_long(pubkey[33:65]), _r )
 
 	for i in range(len(msgs)):
-		rand = ( ( '%013x' % (random.random() * 0xfffffffffffff) ) * 5 )
-
-		n = int(rand) >> 4
+		rand = decode_hex( '%013x' % int(random.random() * 0xfffffffffffff) * 5)
+		n = str_to_long(rand) >> 4
 		Mx = str_to_long(msgs[i])
 		My,xoffset = ECC_YfromX(Mx, curved)
 		M = Point( curved, Mx+xoffset, My, _r )
@@ -295,68 +305,65 @@ def encrypt_message(pubkey, m, curved = curveBitcoin, generator = generatorBitco
 		U = pk * n + M
 
 		toadd = T.ser() + U.ser()
-		toadd = chr(ord(toadd[0])-2+2*xoffset)+toadd[1:]
-		r+=toadd
+		toadd = bytearray(chr(toadd[0] - 2 + 2 * xoffset),'utf8') + toadd[1:]
+		r += toadd
 	return base64.b64encode(public_header(pubkey,0) + r)
 
 def pointSerToPoint(Aser, curved = curveBitcoin, generator = generatorBitcoin):
 	_r  = generator.order()
-	assert Aser[0] in ['\x02','\x03','\x04']
-	if Aser[0] == '\x04':
+	assert bytes(chr(Aser[0]),'utf8') in [b'\x02',b'\x03',b'\x04']
+	if bytes(chr(Aser[0]),'utf8') == b'\x04':
 		return Point( curved, str_to_long(Aser[1:33]), str_to_long(Aser[33:]), _r )
 	Mx = str_to_long(Aser[1:])
-	return Point( curved, Mx, ECC_YfromX(Mx, curved, Aser[0]=='\x03')[0], _r )
+	return Point( curved, Mx, ECC_YfromX(Mx, curved, bytes(chr(Aser[0]),'utf8') == b'\x03')[0], _r )
 
 def decrypt_message(pvk, enc, curved = curveBitcoin, verbose = False, generator = generatorBitcoin):
-	P = generator
-	pvk=str_to_long(pvk)
-	pubkeys = [(P * pvk).ser(True), (P * pvk).ser(False)]
+	pvk = str_to_long(pvk)
+	P = generator * pvk
+	pubkeys = [(P.ser(True)), (P.ser(False))]
 	enc = base64.b64decode(enc)
 
-	assert enc[:2] == '\x6a\x6a'		
-
-	phv = str_to_long(enc[2])
+	assert enc[:2] == b'\x6a\x6a'
+	phv = enc[2]
 	assert phv == 0, "Can't read version %d public header" % phv
 	hs = str_to_long(enc[3:5])
-	public_header=enc[5:5+hs]
-	if verbose: print ('Public header (size:%d)%s%s' % (hs, ': 0x' * int(bool(hs>0)), public_header.encode('hex')))
-	if verbose: print ('  Version: %d'%phv)
+	public_header = enc[5:5+hs]
+	if verbose: print ('Public header (size:%d)%s%s' % (hs, ': 0x' * int(bool(hs>0)), encode_hex(public_header)))
+	if verbose: print ('  Version: %d' % phv)
 	checksum_pubkey = public_header[:2]
-	if verbose: print ('  Checksum of pubkey: %s' % checksum_pubkey.encode('hex'))
-
-	address = filter(lambda x:sha256(x)[:2] == checksum_pubkey, pubkeys)
+	if verbose: print ('  Checksum of pubkey: %s' % encode_hex(checksum_pubkey))
+	address = list(filter(lambda x:sha256(x)[:2] == checksum_pubkey, pubkeys))
 	assert len(address) > 0, 'Bad private key'
 	address = address[0]
 	enc = enc[5+hs:]
 
-	r = ''
+	r = b''
 	for Tser,User in map(lambda x:[x[:33],x[33:]], chunks(enc, 66)):
-		ots = ord(Tser[0])
+		ots = Tser[0]
 		xoffset = ots >> 1
-		Tser = chr(2 + (ots & 1)) + Tser[1:]
+		Tser = bytearray(chr(2 + (ots & 1)),'utf8') + Tser[1:]
 		T = pointSerToPoint(Tser, curved, generator)
 		U = pointSerToPoint(User, curved, generator)
 
 		V = T * pvk
 		Mcalc = U + V.negative_self()
-		r += ('%064x'%(Mcalc.x()-xoffset)).decode('hex')
-
-	pvhv = str_to_long(r[0])
+		r += decode_hex('%064x'%(Mcalc.x()-xoffset))
+	pvhv = r[0]
 	assert pvhv == 0, "Can't read version %d private header" % pvhv
 	phs = str_to_long(r[1:3])
 	private_header = r[3:3+phs]
-	if verbose: print ('Private header (size:%d): 0x%s'%(phs, private_header.encode('hex')))
+	if verbose: print ('Private header (size:%d): 0x%s' % (phs, encode_hex(private_header)))
 	size = str_to_long(private_header[:4])
 	checksum = private_header[4:6]
-	if verbose: print ('  Message size: %d'%size)
-	if verbose: print ('  Checksum: %04x'%str_to_long(checksum))
+	if verbose: print ('  Message size: %d' % size)
+	if verbose: print ('  Checksum: %04x' % str_to_long(checksum))
 	r = r[3+phs:]
 
 	msg = r[:size]
 	hashmsg = sha256(msg)[:2]
 	checksumok = hashmsg == checksum
-	if verbose: print ('Decrypted message: ' + msg)
-	if verbose: print ('  Hash: ' + hashmsg.encode('hex'))
+	if verbose: print ('Decrypted message: ' + str(msg))
+	if verbose: print ('  Hash: ' + encode_hex(hashmsg))
 	if verbose: print ('  Corresponds: ' + str(checksumok))
 
 	return [msg, checksumok, address]
@@ -376,7 +383,7 @@ def GetArg(a, d = ''):
 				return content
 			return sys.argv[i]
 	if a == '-i':
-		print ("Type the text to use. "+KeyboardInterruptText()+" to stop writing: ")
+		print ("Type the text to use. " + KeyboardInterruptText() + " to stop writing: ")
 		return ''.join(sys.stdin.readlines())
 	if a == '-k':
 		return raw_input("\nType the key to use: ")
@@ -400,16 +407,16 @@ def print_help(e = False):
 	if e: exit(0)
 
 def generate_keys(curved = curveBitcoin, bitcoin = True, addv = 0, G = generatorBitcoin):  #will return private key < 2^256
-	# WARNING!! RANDOM GENERATOR IS NOT SECURE!!
+	# WARNING!! RANDOM GENERATOR IS NOT SAFE!!
 	_r  = G.order()
-	rand = ( '%013x' % (random.random() * 0xfffffffffffff) ) * 5
-	pvk  = (int(rand) >> 4) % _r
-	P = pvk*G
-	btcaddresses=['','']
+	rand = ( '%013x' % int(random.random() * 0xfffffffffffff) ) * 5
+	pvk  = (int(rand, 16) >> 4) % _r
+	P = pvk * G
+	btcaddresses=[]
 	if bitcoin:
-		btcaddresses[0] = public_key_to_bc_address(P.ser(True), addv)
-		btcaddresses[1] = public_key_to_bc_address(P.ser(False),addv)
-	return ['%064x'%pvk, P.ser(True).encode('hex'), P.ser(False).encode('hex'), btcaddresses]
+		btcaddresses.append(public_key_to_bc_address(P.ser(True), addv))
+		btcaddresses.append(public_key_to_bc_address(P.ser(False), addv))
+	return ['%064x' % pvk, encode_hex(P.ser(True)), encode_hex(P.ser(False)), btcaddresses]
 
 if __name__ == '__main__':
 	"""
@@ -421,8 +428,8 @@ if __name__ == '__main__':
 		print_help(True)
 
 	if GetFlag('--generate-keys') or GetFlag('-g'):
-		v=int(GetArg('-v',0))
-		keys=generate_keys(addv=v)
+		v = int(GetArg('-v', 0))
+		keys = generate_keys(addv = v)
 		print ('Private key:              ', keys[0])
 		print ('Compressed public key:    ', keys[1])
 		print ('Uncompressed public key:  ', keys[2])
@@ -431,38 +438,38 @@ if __name__ == '__main__':
 		exit(0)
 
 	if GetFlag('-e'):
-		addv = int(GetArg('-v',0))
+		addv = int(GetArg('-v', 0))
 		message = GetArg('-i')
 		public_key = GetArg('-k')
 
 		if len(public_key) in [66,130]:
-			public_key = public_key.decode('hex')
+			public_key = decode_hex(public_key)
 		assert len(public_key) in [33,65], 'Bad public key'
 
-		output = encrypt_message(public_key,message, generator = generatorBitcoin)
+		output = encrypt_message(public_key, message, generator = generatorBitcoin)
 
 		output_file = GetArg('-o')
 		if output_file:
-			f = open(output_file,'w')
+			f = open(output_file,'wb')
 			f.write(output)
 			f.close()
-		print ("\n\nEncrypted message to " + public_key_to_bc_address(public_key,addv) + ":\n" + output)
+		print ("\n\nEncrypted message to " + public_key_to_bc_address(public_key,addv) + ":\n" + str(output))
 	elif GetFlag('-d'):
 		addv = int(GetArg('-v', 0))
 		message = GetArg('-i')
 		private_key = GetArg('-k')
 
 		if len(private_key) == 64:
-			private_key = private_key.decode('hex')
+			private_key = decode_hex(private_key)
 		assert len(private_key) == 32, 'Bad private key, you must give it in hexadecimal'
 
 		output = decrypt_message(private_key, message, verbose = True, generator = generatorBitcoin)
 
 		output_file = GetArg('-o')
 		if output_file:
-			f = open(output_file,'w')
+			f = open(output_file,'wb')
 			f.write(output[0])
 			f.close()
-		print ("\nDecrypted message to " + public_key_to_bc_address(output[2], addv) + ":\n" + output[0])
+		print ("\nDecrypted message to " + public_key_to_bc_address(output[2], addv) + ":\n" + str(output[0]))
 	else:
 		print_help(True)
